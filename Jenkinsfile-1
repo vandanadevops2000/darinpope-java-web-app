@@ -14,4 +14,28 @@ pipeline {
         timestamps()
         disableConcurrentBuilds()
     }
+    environment {
+        repoName = 'darinpope-java-web-app'
+        branchName = 'main'
+    }
+    stages {
+        stage('Build and Package') {
+            steps {
+                script {
+                    pom = readMavenPom file: "pom.xml"
+                    projectVersion = pom.version
+                    sh """
+                        mvn spring-boot:build-image -Dmaven.test.skip=true \\
+                            -Dspring-boot.build-image.imageName=${repoName}-${branchName}-${BUILD_NUMBER}:${projectVersion}
+                    """
+                }
+            }
+        }
+        stage('CleanWorkspace') {
+            steps {
+                cleanWs()
+                echo 'Cleaned workspace after build'
+            }
+        }
+    }
 }
