@@ -17,6 +17,7 @@ pipeline {
     environment {
         repoName = 'darinpope-java-web-app'
         branchName = 'main'
+        s3Bucket = 'shru123'  // 🔹 Your S3 bucket name
     }
     stages {
         stage('Build and Package') {
@@ -29,6 +30,18 @@ pipeline {
                             -Dspring-boot.build-image.imageName=${repoName}-${branchName}-${BUILD_NUMBER}:${projectVersion}
                     """
                 }
+            }
+        }
+        stage('Upload Artifacts to S3 bucket') {
+            steps {
+                sh '''
+                cd ${repoName}
+                rm -rf s3uploadjar
+                mkdir s3uploadjar
+                chmod 755 s3uploadjar
+                cp target/*.jar s3uploadjar/
+                aws s3 cp s3uploadjar/ s3://${s3Bucket}/ --recursive
+                '''
             }
         }
         stage('CleanWorkspace') {
