@@ -12,7 +12,8 @@ pipeline {
     environment {
         repoName = 'darinpope-java-web-app'
         branchName = 'main'
-        awsRegion = 'ap-south-2'   // Setting AWS region in environment
+        awsRegion = 'ap-south-2'
+        sonarServer = 'http://3.85.230.100:9000/'
     }
     stages {
         stage('Build and Package') {
@@ -21,14 +22,27 @@ pipeline {
                     pom = readMavenPom file: "pom.xml"
                     projectVersion = pom.version
                     sh """
-                        mvn clean package -Dmaven.test.skip=true
+                        mvn spring-boot:build-image -Dmaven.test.skip=true \\
+                            -Dspring-boot.build-image.imageName=${repoName}-${branchName}-${BUILD_NUMBER}:${projectVersion}
                     """
+                }
+            }
+        }
+        stage('Sonar Analysis') {
+            steps {
+                script {
+                    echo "Running Sonar analysis on the ${branchName} branch"
+                    withSonarQubeEnv('sonar') {
+                        sh '''
+                        mvn clean sonar:sonar -DskipTests -Dsonar.java.binaries=target/classes -Dsonar.host.url=${sonarServer}
+                        '''
+                    }
                 }
             }
         }
         stage('Upload Artifacts to S3 bucket') {
             steps {
-                withCredentials([aws(credentialsId: 'Aws')]) {  // Use stored AWS credentials
+                withCredentials([aws(credentialsId: 'Aws')]) {
                     script {
                         sh '''
                         rm -rf s3uploadjar
