@@ -12,6 +12,7 @@ pipeline {
     environment {
         repoName = 'darinpope-java-web-app'
         branchName = 'main'
+        awsRegion = 'ap-south-2'   // Setting AWS region in environment
     }
     stages {
         stage('Build and Package') {
@@ -27,14 +28,16 @@ pipeline {
         }
         stage('Upload Artifacts to S3 bucket') {
             steps {
-                script {
-                    sh '''
-                    rm -rf s3uploadjar
-                    mkdir s3uploadjar
-                    chmod 755 s3uploadjar
-                    cp target/*.jar s3uploadjar/
-                    aws s3 cp s3uploadjar/ s3://shru123/ --recursive
-                    '''
+                withCredentials([aws(credentialsId: 'Aws')]) {  // Use stored AWS credentials
+                    script {
+                        sh '''
+                        rm -rf s3uploadjar
+                        mkdir s3uploadjar
+                        chmod 755 s3uploadjar
+                        cp target/*.jar s3uploadjar/
+                        aws s3 cp s3uploadjar/ s3://shru123/ --recursive --region ${awsRegion}
+                        '''
+                    }
                 }
             }
         }
