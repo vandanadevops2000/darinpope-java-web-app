@@ -1,66 +1,73 @@
 pipeline {
     agent any
-    tools {
-        maven 'maven'
-    }
-    options {
-        buildDiscarder(logRotator(daysToKeepStr: '30', artifactDaysToKeepStr: '30'))
-        timeout(time: 50, unit: 'MINUTES')
-        timestamps()
-        disableConcurrentBuilds()
-    }
+
     environment {
-        repoName = 'darinpope-java-web-app'
-        branchName = 'main'
-        awsRegion = 'ap-south-2'
-        sonarServer = 'http://3.85.230.100:9000/'
+        AWS_REGION = "ap-south-2"
+        SONAR_URL = "http://3.85.230.100:9000/"
+        AWS_ACCOUNT_ID = "your_aws_account_id"
+        REPO_NAME = "your_repo_name"
+        PROJECT_VERSION = "your_project_version"
+        BUILD_NUMBER = "${env.BUILD_NUMBER}"
     }
+
     stages {
-        stage('Build and Package') {
+        stage("Checkout Code") {
             steps {
                 script {
-                    pom = readMavenPom file: "pom.xml"
-                    projectVersion = pom.version
+                    echo "Checking out code..."
+                    checkout scm
+                }
+            }
+        }
+
+        stage("Build and Package") {
+            steps {
+                script {
                     sh """
-                        mvn clean compile
                         mvn spring-boot:build-image -Dmaven.test.skip=true \\
-                            -Dspring-boot.build-image.imageName=${repoName}-${branchName}-${BUILD_NUMBER}:${projectVersion}
+                            -Dspring-boot.build-image.imageName=${REPO_NAME}-main-${BUILD_NUMBER}:${PROJECT_VERSION}
                     """
                 }
             }
         }
-        stage('Sonar Analysis') {
+
+        stage("Sonar Analysis") {
             steps {
                 script {
-                    echo "Running Sonar analysis on the ${branchName} branch"
+                    echo "Running Sonar analysis for 'main' branch"
                     withSonarQubeEnv('sonar') {
-                        sh '''
-                        mvn sonar:sonar -Dsonar.java.binaries=target/classes -Dsonar.host.url=${sonarServer}
-                        '''
+                        sh """
+                            mvn clean sonar:sonar -DskipTests \\
+                                -Dsonar.java.binaries=target/classes \\
+                                -Dsonar.host.url=${SONAR_URL}
+                        """
                     }
                 }
             }
         }
-        stage('Upload Artifacts to S3 bucket') {
+
+        stage("Docker Image Build & Push to AWS ECR Repository") {
             steps {
-                withCredentials([aws(credentialsId: 'Aws')]) {
-                    script {
-                        sh '''
-                        rm -rf s3uploadjar
-                        mkdir s3uploadjar
-                        chmod 755 s3uploadjar
-                        cp target/*.jar s3uploadjar/
-                        aws s3 cp s3uploadjar/ s3://shru123/ --recursive --region ${awsRegion}
-                        '''
+                script {
+                    echo "Building and pushing Docker image for 'main' branch"
+
+                    sh "docker tag ${REPO_NAME}-main-${BUILD_NUMBER}:${PROJECT_VERSION} ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${REPO_NAME}:main-${BUILD_NUMBER}"
+
+                    withAWS(region: "${AWS_REGION}", credentials: "aws_credentials") {
+                        sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+                        sh "docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${REPO_NAME}:main-${BUILD_NUMBER}"
                     }
                 }
             }
         }
-        stage('CleanWorkspace') {
-            steps {
-                cleanWs()
-                echo 'Cleaned workspace after build'
-            }
+    }
+
+    post {
+        success {
+            echo "Pipeline executed successfully!"
+        }
+        failure {
+            echo "Pipeline execution failed!"
         }
     }
 }
