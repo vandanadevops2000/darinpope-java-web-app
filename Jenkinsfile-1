@@ -1,18 +1,13 @@
 pipeline {
     agent any
 
-    tools {
-        maven 'Maven'  // Ensure 'Maven' is configured in Jenkins Global Tool Configuration
-    }
-
     environment {
         AWS_REGION = "ap-south-2"
-        SONAR_URL = "http://3.81.55.173:9000/"
-        AWS_ACCOUNT_ID = "796973488942"
-        REPO_NAME = "main"
+        SONAR_URL = "http://3.85.230.100:9000/"
+        AWS_ACCOUNT_ID = "your_aws_account_id"
+        REPO_NAME = "your_repo_name"
+        PROJECT_VERSION = "your_project_version"
         BUILD_NUMBER = "${env.BUILD_NUMBER}"
-        S3_BUCKET = "shru123"
-        IMAGE_NAME = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${REPO_NAME}:${REPO_NAME}-main-${BUILD_NUMBER}"
     }
 
     stages {
@@ -28,8 +23,10 @@ pipeline {
         stage("Build and Package") {
             steps {
                 script {
-                    sh "mvn clean package -Dmaven.test.skip=true | tee mvn_build.log"
-                    archiveArtifacts artifacts: 'mvn_build.log', fingerprint: true
+                    sh """
+                        mvn spring-boot:build-image -Dmaven.test.skip=true \\
+                            -Dspring-boot.build-image.imageName=${REPO_NAME}-main-${BUILD_NUMBER}:${PROJECT_VERSION}
+                    """
                 }
             }
         }
@@ -38,27 +35,53 @@ pipeline {
             steps {
                 script {
                     echo "Running Sonar analysis for 'main' branch"
-                    withSonarQubeEnv('sonar') { // Using the correct Jenkins SonarQube credentials ID
+                    withSonarQubeEnv('sonar') {
                         sh """
-                            mvn sonar:sonar -Dsonar.host.url=${SONAR_URL}
+                            mvn clean sonar:sonar -DskipTests \\
+                                -Dsonar.java.binaries=target/classes \\
+                                -Dsonar.host.url=${SONAR_URL}
                         """
                     }
                 }
             }
         }
 
-        stage("Docker Build & Push to AWS ECR") {
+        stage("Docker Login & Build") {
             steps {
                 script {
-                    echo "Building Docker image"
-                    sh "docker build -t ${IMAGE_NAME} ."
+                    echo "Logging into Docker Hub using Jenkins credentials"
 
-                    echo "Logging in to AWS ECR"
+                    withCredentials([usernamePassword(credentialsId: 'Docker', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                        sh """
+                            docker login -u $DOCKER_USER -p $DOCKER_PASS
+                        """
+                    }
+
+                    echo "Building Docker image"
+                    sh """
+                        docker build -t ${REPO_NAME}-main-${BUILD_NUMBER}:${PROJECT_VERSION} .
+                    """
+                }
+            }
+        }
+
+        stage("Push Docker Image to AWS ECR") {
+            steps {
+                script {
+                    echo "Logging into AWS ECR"
+
                     withAWS(region: "${AWS_REGION}", credentials: "Aws") {
                         sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-                    }
-                    withDockerRegistry([credentialsId: 'docker', url: "https://${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"]) {
-                        sh "docker push ${IMAGE_NAME}"
+                        
+                        echo "Tagging Docker Image"
+                        sh """
+                            docker tag ${REPO_NAME}-main-${BUILD_NUMBER}:${PROJECT_VERSION} ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${REPO_NAME}:main-${BUILD_NUMBER}
+                        """
+
+                        echo "Pushing Docker Image to AWS ECR"
+                        sh """
+                            docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${REPO_NAME}:main-${BUILD_NUMBER}
+                        """
                     }
                 }
             }
