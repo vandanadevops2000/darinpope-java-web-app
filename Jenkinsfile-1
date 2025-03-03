@@ -6,7 +6,6 @@ pipeline {
         SONAR_URL = "http://3.85.230.100:9000/"
         AWS_ACCOUNT_ID = "your_aws_account_id"
         REPO_NAME = "your_repo_name"
-        PROJECT_VERSION = "your_project_version"
         BUILD_NUMBER = "${env.BUILD_NUMBER}"
     }
 
@@ -25,7 +24,7 @@ pipeline {
                 script {
                     sh """
                         mvn spring-boot:build-image -Dmaven.test.skip=true \\
-                            -Dspring-boot.build-image.imageName=${REPO_NAME}-main-${BUILD_NUMBER}:${PROJECT_VERSION}
+                            -Dspring-boot.build-image.imageName=${REPO_NAME}-main-${BUILD_NUMBER}
                     """
                 }
             }
@@ -59,7 +58,7 @@ pipeline {
 
                     echo "Building Docker image"
                     sh """
-                        docker build -t ${REPO_NAME}-main-${BUILD_NUMBER}:${PROJECT_VERSION} .
+                        docker build -t ${REPO_NAME}-main-${BUILD_NUMBER} .
                     """
                 }
             }
@@ -75,7 +74,7 @@ pipeline {
                         
                         echo "Tagging Docker Image"
                         sh """
-                            docker tag ${REPO_NAME}-main-${BUILD_NUMBER}:${PROJECT_VERSION} ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${REPO_NAME}:main-${BUILD_NUMBER}
+                            docker tag ${REPO_NAME}-main-${BUILD_NUMBER} ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${REPO_NAME}:main-${BUILD_NUMBER}
                         """
 
                         echo "Pushing Docker Image to AWS ECR"
