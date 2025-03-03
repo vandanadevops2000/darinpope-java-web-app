@@ -38,7 +38,7 @@ pipeline {
             steps {
                 script {
                     echo "Running Sonar analysis for 'main' branch"
-                    withSonarQubeEnv('soanr') { // Using the correct Jenkins SonarQube credentials ID
+                    withSonarQubeEnv('sonar') { // Using the correct Jenkins SonarQube credentials ID
                         sh """
                             mvn sonar:sonar -Dsonar.host.url=${SONAR_URL}
                         """
