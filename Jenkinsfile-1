@@ -1,12 +1,20 @@
 pipeline {
     agent any
 
+    tools {
+        maven 'Maven'  // Ensure 'Maven' is configured in Jenkins Global Tool Configuration
+    }
+
     environment {
         AWS_REGION = "ap-south-2"
-        SONAR_URL = "http://3.85.230.100:9000/"
-        AWS_ACCOUNT_ID = "your_aws_account_id"
-        REPO_NAME = "your_repo_name"
+        SONAR_URL = "http://3.81.55.173:9000/"
+        AWS_ACCOUNT_ID = "796973488942"
+        REPO_NAME = "main"
         BUILD_NUMBER = "${env.BUILD_NUMBER}"
+        S3_BUCKET = "shru123"
+        IMAGE_NAME = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${REPO_NAME}:${REPO_NAME}-main-${BUILD_NUMBER}"
+        MAVEN_HOME = "/usr/share/maven" // Specify the direct Maven path
+        PATH = "$MAVEN_HOME/bin:$PATH"
     }
 
     stages {
@@ -22,10 +30,8 @@ pipeline {
         stage("Build and Package") {
             steps {
                 script {
-                    sh """
-                        mvn spring-boot:build-image -Dmaven.test.skip=true \\
-                            -Dspring-boot.build-image.imageName=${REPO_NAME}-main-${BUILD_NUMBER}
-                    """
+                    sh "$MAVEN_HOME/bin/mvn clean package -Dmaven.test.skip=true | tee mvn_build.log"
+                    archiveArtifacts artifacts: 'mvn_build.log', fingerprint: true
                 }
             }
         }
@@ -34,53 +40,27 @@ pipeline {
             steps {
                 script {
                     echo "Running Sonar analysis for 'main' branch"
-                    withSonarQubeEnv('sonar') {
+                    withSonarQubeEnv('sonar') { // Using the correct Jenkins SonarQube credentials ID
                         sh """
-                            mvn clean sonar:sonar -DskipTests \\
-                                -Dsonar.java.binaries=target/classes \\
-                                -Dsonar.host.url=${SONAR_URL}
+                            $MAVEN_HOME/bin/mvn sonar:sonar -Dsonar.host.url=${SONAR_URL}
                         """
                     }
                 }
             }
         }
 
-        stage("Docker Login & Build") {
+        stage("Docker Build & Push to AWS ECR") {
             steps {
                 script {
-                    echo "Logging into Docker Hub using Jenkins credentials"
-
-                    withCredentials([usernamePassword(credentialsId: 'Docker', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                        sh """
-                            docker login -u $DOCKER_USER -p $DOCKER_PASS
-                        """
-                    }
-
                     echo "Building Docker image"
-                    sh """
-                        docker build -t ${REPO_NAME}-main-${BUILD_NUMBER} .
-                    """
-                }
-            }
-        }
+                    sh "docker build -t ${IMAGE_NAME} ."
 
-        stage("Push Docker Image to AWS ECR") {
-            steps {
-                script {
-                    echo "Logging into AWS ECR"
-
+                    echo "Logging in to AWS ECR"
                     withAWS(region: "${AWS_REGION}", credentials: "Aws") {
-                        sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-                        
-                        echo "Tagging Docker Image"
-                        sh """
-                            docker tag ${REPO_NAME}-main-${BUILD_NUMBER} ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${REPO_NAME}:main-${BUILD_NUMBER}
-                        """
-
-                        echo "Pushing Docker Image to AWS ECR"
-                        sh """
-                            docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${REPO_NAME}:main-${BUILD_NUMBER}
-                        """
+                        sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username Aws --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+                    }
+                    withDockerRegistry([credentialsId: 'docker', url: "https://${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"]) {
+                        sh "docker push ${IMAGE_NAME}"
                     }
                 }
             }
