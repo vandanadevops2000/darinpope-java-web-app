@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     tools {
-        maven 'Maven'  // Ensure that 'Maven' is configured in Jenkins Global Tool Configuration
+        maven 'Maven'  // Ensure 'Maven' is configured in Jenkins Global Tool Configuration
     }
 
     environment {
@@ -12,6 +12,7 @@ pipeline {
         REPO_NAME = "main"
         BUILD_NUMBER = "${env.BUILD_NUMBER}"
         S3_BUCKET = "shru123"
+        IMAGE_NAME = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${REPO_NAME}:${REPO_NAME}-main-${BUILD_NUMBER}"
     }
 
     stages {
@@ -27,9 +28,8 @@ pipeline {
         stage("Build and Package") {
             steps {
                 script {
-                    sh """
-                        mvn clean package -Dmaven.test.skip=true
-                    """
+                    sh "mvn clean package -Dmaven.test.skip=true | tee mvn_build.log"
+                    archiveArtifacts artifacts: 'mvn_build.log', fingerprint: true
                 }
             }
         }
@@ -38,27 +38,25 @@ pipeline {
             steps {
                 script {
                     echo "Running Sonar analysis for 'main' branch"
-                    withSonarQubeEnv('sonar') {
+                    withSonarQubeEnv('soanr') { // Using the correct Jenkins SonarQube credentials ID
                         sh """
-                            mvn sonar:sonar -DskipTests \\
-                                -Dsonar.java.binaries=target/classes \\
-                                -Dsonar.host.url=${SONAR_URL}
+                            mvn sonar:sonar -Dsonar.host.url=${SONAR_URL}
                         """
                     }
                 }
             }
         }
 
-        stage("Docker Image Build & Push to AWS ECR Repository") {
+        stage("Docker Build & Push to AWS ECR") {
             steps {
                 script {
-                    echo "Building and pushing Docker image for 'main' branch"
+                    echo "Building Docker image"
+                    sh "docker build -t ${IMAGE_NAME} ."
 
-                    sh "docker tag ${REPO_NAME}-main-${BUILD_NUMBER} ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${REPO_NAME}:${REPO_NAME}-main-${BUILD_NUMBER}"
-
+                    echo "Logging in to AWS ECR"
                     withAWS(region: "${AWS_REGION}", credentials: "aws_credentials") {
                         sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-                        sh "docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${REPO_NAME}:${REPO_NAME}-main-${BUILD_NUMBER}"
+                        sh "docker push ${IMAGE_NAME}"
                     }
                 }
             }
