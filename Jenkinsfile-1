@@ -49,19 +49,11 @@ pipeline {
             }
         }
 
-        stage("Docker Build & Push to AWS ECR") {
+        stage("Docker Build") {
             steps {
                 script {
                     echo "Building Docker image"
                     sh "docker build -t ${IMAGE_NAME} ."
-
-                    echo "Logging in to AWS ECR"
-                    withAWS(region: "${AWS_REGION}", credentials: "Aws") {
-                        sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username Aws --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-                    }
-                    withDockerRegistry([credentialsId: 'docker', url: "https://${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"]) {
-                        sh "docker push ${IMAGE_NAME}"
-                    }
                 }
             }
         }
