@@ -12,9 +12,7 @@ pipeline {
         REPO_NAME = "main"
         BUILD_NUMBER = "${env.BUILD_NUMBER}"
         S3_BUCKET = "shru123"
-        IMAGE_NAME = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${REPO_NAME}:${REPO_NAME}-main-${BUILD_NUMBER}"
-        MAVEN_HOME = "/usr/share/maven" // Specify the direct Maven path
-        PATH = "$MAVEN_HOME/bin:$PATH"
+        
     }
 
     stages {
